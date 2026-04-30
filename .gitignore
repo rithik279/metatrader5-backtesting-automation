@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Local config (user-specific, not committed)
+remote_config.json
+
+# Generated files (per-run)
+mt5.ini
+
+# Results (don't commit CSV results)
+# results.csv
+
+# Large data folders - don't track optimization results
+# VPSBackup/ will be ignored
+VPSBackup/
+
+# OS files
+.DS_Store
+Thumbs.db
