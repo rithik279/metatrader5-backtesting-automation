@@ -20,17 +20,24 @@ env/
 *.swp
 *.swo
 
-# Local config (user-specific, not committed)
+# Local and generated configuration
 remote_config.json
-
-# Generated files (per-run)
 mt5.ini
 
-# Results (don't commit CSV results)
-# results.csv
+# Compiled binaries and Expert Advisors
+*.exe
+*.ex5
 
-# Large data folders - don't track optimization results
-# VPSBackup/ will be ignored
+# Generated reports and results
+*.html
+*.htm
+results.csv
+Results/
+Queue/
+Processing/
+Processed/
+
+# Large data folders
 VPSBackup/
 
 # OS files
