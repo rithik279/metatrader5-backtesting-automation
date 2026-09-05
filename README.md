@@ -1,115 +1,109 @@
 # MT5 Remote Backtest Automation
 
-Automated backtesting system for MetaTrader 5 via remote desktop. Processes optimization result files (.set) through a two-stage backtest-forward workflow, extracts metrics, and logs results to CSV.
+A file-driven automation service for running MetaTrader 5 backtests on a remote Windows machine.
 
-## Overview
+The runner watches a synchronized queue of MT5 `.set` files, executes separate backtest and forward-test periods, parses the generated reports, and appends comparable metrics to a results table.
 
-```
-┌─────────────┐     OneDrive      ┌─────────────────┐
-│ Local PC    │ ────────────────► │ Remote VPS/RDP  │
-│ (Queue .set)│                   │ (runs MT5)      │
-└─────────────┘                   └─────────────────┘
-                                            │
-                                            ▼
-                                    results.csv (syncs back)
-```
+## Problem
+
+MetaTrader optimization results are easy to generate but slow to validate consistently across independent backtest and forward periods. Manual reruns also create avoidable operational errors: inconsistent date windows, missed files, and incomplete metric capture.
+
+This project turns that workflow into a small state machine that can run unattended on an MT5-enabled VPS.
 
 ## Architecture
 
-**File-based IPC** — No direct network connection. Local machine drops `.set` files into OneDrive Queue folder, remote VPS picks them up and processes.
-
-**State Machine via Folders:**
-- `Queue/` → files waiting to be processed
-- `Processing/` → files currently being worked
-- `Processed/` → completed files (archived)
-
-**Two-Pass Backtest Flow:**
-1. **Backtest Portion**: `FromDate` → `ForwardSplitDate`
-2. **Forward Portion**: `ForwardSplitDate` → `ToDate`
-
-Each pass runs MT5 separately, parses HTML report, extracts metrics.
-
-## Folder Structure
-
+```mermaid
+flowchart LR
+    A["Local machine"] --> B["Synced Queue"]
+    B --> C["Windows VPS runner"]
+    C --> D["MetaTrader 5"]
+    D --> E["HTML reports"]
+    E --> F["Parsed metrics"]
+    F --> G["results.csv"]
 ```
-RD_MT5_Sharing/
-├── remote_runner.py       # Main automation script
-├── remote_config.json     # Dynamic configuration (symbol, dates, deposit)
-├── Queue/                 # Drop .set files here
-├── Processing/            # Active work directory
-├── Processed/             # Completed runs
-├── Results/
-│   └── results.csv        # Combined metrics output
-└── mt5.ini                # Generated per-run (not committed)
+
+The folders act as file-based inter-process communication:
+
+- `Queue/`: strategies waiting to run;
+- `Processing/`: the current job;
+- `Processed/`: completed parameter files; and
+- `Results/`: generated aggregate metrics.
+
+## Two-pass workflow
+
+1. Run the backtest period from `FromDate` to `SplitDate`.
+2. Run the forward period from `SplitDate` to `ToDate`.
+3. Parse both MT5 HTML reports.
+4. Record profit, drawdown, trade count, win rate, profit factor, expected payoff, average winning and losing trade, and consecutive-loss metrics.
+5. Move the processed `.set` file out of the queue.
+
+## Repository structure
+
+```text
+.
+├── src/
+│   └── remote_runner.py
+├── tests/
+│   └── README.md
+├── examples/
+│   └── remote_config.example.json
+├── docs/
+│   └── architecture.md
+├── pyproject.toml
+├── KEYTAKEWAYS.md
+└── README.md
 ```
+
+Compiled executables are not stored in Git. Release binaries should be distributed through GitHub Releases.
 
 ## Setup
 
-### 1. VPS/Remote Desktop
+Requirements:
+
+- Windows with Python 3.8 or newer;
+- MetaTrader 5 installed on the remote machine;
+- a synchronized folder shared between the local machine and VPS; and
+- the required Expert Advisor installed in MT5.
 
 ```powershell
-# Clone or copy repo to VPS
-git clone <repo-url>
-cd RD_MT5_Sharing
-
-# Install Python (3.8+)
-python remote_runner.py
+git clone https://github.com/rithik279/metatrader5-backtesting-automation.git
+cd metatrader5-backtesting-automation
+Copy-Item examples/remote_config.example.json remote_config.json
+python src/remote_runner.py
 ```
 
-### 2. MT5 Configuration
-
-Edit paths in `remote_runner.py`:
-```python
-MT5_TERMINAL_PATH = r"C:\Program Files\PU Prime MT5 Terminal-1\terminal64.exe"
-MT5_DATA_FOLDER_NAME = "CB73EB447A09F27F5775C81FBB987ED5"  # Your terminal hash
-EA_NAME = r"Advisors\Archangel_X-v3.4.ex5"  # Your EA path
-```
-
-### 3. OneDrive Sync
-
-Ensure `RD_MT5_Sharing` folder syncs between local PC and VPS.
-
-### 4. Local PC
-
-Drop `.set` files into the Queue folder. They sync to VPS automatically.
+Update the environment-specific MT5 paths and Expert Advisor settings before running. Keep `remote_config.json`, terminal hashes, broker-specific paths, reports, and result files out of version control.
 
 ## Configuration
 
-Edit `remote_config.json` on OneDrive (synced to VPS):
+`remote_config.json` controls the symbol, deposit, and date windows:
 
 ```json
 {
-  "Symbol": "NAS100ft.s",
+  "Symbol": "DEMO_SYMBOL",
   "Deposit": "50000",
-  "FromDate": "2025.09.12",
-  "SplitDate": "2025.11.12",
-  "ToDate": "2025.12.12",
+  "FromDate": "2026.01.01",
+  "SplitDate": "2026.03.01",
+  "ToDate": "2026.04.01",
   "ClearResults": false
 }
 ```
 
-`ClearResults: true` clears `results.csv` on next run.
+## Known limitations
 
-## Output
+- Windows and MT5 are required for end-to-end execution.
+- The workflow polls the queue rather than using events.
+- HTML parsing depends on the MT5 report format.
+- A failed MT5 process still needs stronger retry and recovery handling.
+- The current runner contains environment-specific defaults that should be replaced with external configuration before reuse.
 
-`results.csv` columns:
-- `Timestamp`, `SetFile`, `Pass`
-- `BT_*`: Backtest metrics (Profit, Drawdown, DrawdownPct, Trades, WinRate, ProfitFactor, ExpectedPayoff, AvgProfitTrade, AvgLossTrade, MaxConsecLosses)
-- `FT_*`: Forward metrics (same fields)
+## What this project demonstrates
 
-## Requirements
-
-- Python 3.8+
-- MetaTrader 5 Terminal (installed on VPS)
-- OneDrive sync between local and remote
-- MT5 Expert Advisor compiled (.ex5)
-
-## Known Limitations
-
-- No retry logic if MT5 crashes mid-run
-- No email/push notifications on failure
-- Polling-based (2-second interval)
-- HTML parsing brittle to MT5 report format changes
+- automation across local and remote trading infrastructure;
+- explicit workflow state using queue folders;
+- subprocess orchestration for an external desktop trading platform;
+- backtest/forward-test separation; and
+- structured extraction of trading-system evaluation metrics.
 
 ## License
 
